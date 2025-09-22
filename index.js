@@ -25,6 +25,13 @@ const INSERT_TYPE = {
 // 默认设置
 const defaultSettings = {
     insertType: INSERT_TYPE.DISABLED,
+    aiPromptGeneration: false,
+    apiUrl: '',
+    apiKey: '',
+    model: '',
+    maxChatHistory: 1,
+    enableWorldInfo: false,
+    orderedPrompts: '',
 };
 
 // 从设置更新UI
@@ -35,25 +42,37 @@ function updateUI() {
     // 只在表单元素存在时更新它们
     if ($("#image_generation_insert_type").length) {
         $('#image_generation_insert_type').val(extension_settings[extensionName].insertType);
+        $('#ai_prompt_generation').prop('checked', extension_settings[extensionName].aiPromptGeneration);
+        $('#api_url').val(extension_settings[extensionName].apiUrl);
+        $('#api_key').val(extension_settings[extensionName].apiKey);
+        $('#model').val(extension_settings[extensionName].model);
+        $('#max_chat_history').val(extension_settings[extensionName].maxChatHistory);
+        $('#enable_world_info').prop('checked', extension_settings[extensionName].enableWorldInfo);
+        $('#ordered_prompts').val(extension_settings[extensionName].orderedPrompts);
+
+        if (extension_settings[extensionName].aiPromptGeneration) {
+            $('#ai_prompt_settings').show();
+        } else {
+            $('#ai_prompt_settings').hide();
+        }
     }
 }
 
 // 加载设置
 async function loadSettings() {
     extension_settings[extensionName] = extension_settings[extensionName] || {};
+    const settings = extension_settings[extensionName];
 
-    // 如果设置为空或缺少必要属性，使用默认设置
-    if (Object.keys(extension_settings[extensionName]).length === 0) {
-        Object.assign(extension_settings[extensionName], defaultSettings);
-    } else {
-        // 确保insertType属性存在
-        if (extension_settings[extensionName].insertType === undefined) {
-            extension_settings[extensionName].insertType = defaultSettings.insertType;
-        }
+    // 迁移旧设置
+    if (settings.promptInjection) {
+        delete settings.promptInjection;
     }
-    // 移除promptInjection
-    if (extension_settings[extensionName].promptInjection) {
-        delete extension_settings[extensionName].promptInjection;
+
+    // 应用默认值
+    for (const key in defaultSettings) {
+        if (settings[key] === undefined) {
+            settings[key] = defaultSettings[key];
+        }
     }
 
     updateUI();
@@ -71,10 +90,113 @@ async function createSettings(settingsHtml) {
 
     // 添加设置变更事件处理
     $('#image_generation_insert_type').on('change', function () {
-        const newValue = $(this).val();
-        extension_settings[extensionName].insertType = newValue;
+        extension_settings[extensionName].insertType = $(this).val();
         updateUI();
         saveSettingsDebounced();
+    });
+
+    $('#ai_prompt_generation').on('change', function () {
+        extension_settings[extensionName].aiPromptGeneration = $(this).is(':checked');
+        updateUI();
+        saveSettingsDebounced();
+    });
+
+    $('#api_url').on('input', function () {
+        extension_settings[extensionName].apiUrl = $(this).val();
+        saveSettingsDebounced();
+    });
+
+    $('#api_key').on('input', function () {
+        extension_settings[extensionName].apiKey = $(this).val();
+        saveSettingsDebounced();
+    });
+
+    $('#model').on('change', function () {
+        extension_settings[extensionName].model = $(this).val();
+        saveSettingsDebounced();
+    });
+
+    $('#max_chat_history').on('input', function () {
+        extension_settings[extensionName].maxChatHistory = Number($(this).val());
+        saveSettingsDebounced();
+    });
+
+    $('#enable_world_info').on('change', function () {
+        extension_settings[extensionName].enableWorldInfo = $(this).is(':checked');
+        saveSettingsDebounced();
+    });
+
+    $('#ordered_prompts').on('input', function () {
+        extension_settings[extensionName].orderedPrompts = $(this).val();
+        saveSettingsDebounced();
+    });
+
+    $('#get_models_button').on('click', async function () {
+        const settings = extension_settings[extensionName];
+        if (!settings.apiUrl || !settings.apiKey) {
+            toastr.error("请输入API URL和API密钥。");
+            return;
+        }
+
+        try {
+            const response = await fetch(`${settings.apiUrl}/v1/models`, {
+                headers: {
+                    'Authorization': `Bearer ${settings.apiKey}`
+                }
+            });
+            const data = await response.json();
+            const models = data.data.map(model => model.id);
+            
+            const $modelSelect = $('#model');
+            $modelSelect.empty();
+            models.forEach(model => {
+                $modelSelect.append(`<option value="${model}">${model}</option>`);
+            });
+
+            // 自动选择第一个模型
+            if (models.length > 0) {
+                $modelSelect.val(models[0]);
+                extension_settings[extensionName].model = models[0];
+                saveSettingsDebounced();
+            }
+
+            toastr.info("可用模型列表已更新。");
+        } catch (error) {
+            toastr.error("获取模型列表失败。");
+            console.error(error);
+        }
+    });
+
+    $('#test_api_button').on('click', async function () {
+        const settings = extension_settings[extensionName];
+        if (!settings.apiUrl || !settings.apiKey || !settings.model) {
+            toastr.error("请输入API URL、API密钥和模型。");
+            return;
+        }
+
+        try {
+            const response = await fetch(`${settings.apiUrl}/v1/chat/completions`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${settings.apiKey}`
+                },
+                body: JSON.stringify({
+                    model: settings.model,
+                    messages: [{ role: 'user', content: 'hi' }]
+                })
+            });
+
+            if (response.ok) {
+                toastr.success("API测试成功！");
+            } else {
+                const error = await response.json();
+                toastr.error(`API测试失败: ${error.error.message}`);
+            }
+        } catch (error) {
+            toastr.error("API测试失败。");
+            console.error(error);
+        }
     });
 
 
@@ -170,7 +292,8 @@ async function handleIncomingMessage() {
         setTimeout(async () => {
             try {
                 toastr.info(`Generating ${matches.length} images...`);
-                const insertType = extension_settings[extensionName].insertType;
+                const settings = extension_settings[extensionName];
+                const insertType = settings.insertType;
 
 
                 // 在当前消息中插入图片
@@ -194,7 +317,28 @@ async function handleIncomingMessage() {
 
                 // 处理每个匹配的图片标签
                 for (let i = 0; i < matches.length; i++) {
-                    const prompt = matches[i];
+                    let prompt = matches[i];
+
+                    if (settings.aiPromptGeneration) {
+                        const { generateRaw } = await import('../../../../power-user/script.js');
+                        const orderedPrompts = settings.orderedPrompts.split('\n').map(p => p.trim()).filter(p => p);
+                        if (settings.enableWorldInfo) {
+                            orderedPrompts.unshift('world_info_before');
+                            orderedPrompts.push('world_info_after');
+                        }
+                        
+                        const generatedPrompt = await generateRaw({
+                            should_stream: false,
+                            custom_api: {
+                                apiurl: settings.apiUrl,
+                                key: settings.apiKey,
+                                model: settings.model,
+                            },
+                            max_chat_history: settings.maxChatHistory,
+                            ordered_prompts: orderedPrompts.map(p => ({ role: 'user', content: p.replace('{{prompt}}', prompt) })),
+                        });
+                        prompt = generatedPrompt;
+                    }
 
                     // @ts-ignore
                     const result = await SlashCommandParser.commands['sd'].callback({ quiet: insertType === INSERT_TYPE.NEW_MESSAGE ? 'false' : 'true' }, prompt);
