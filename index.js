@@ -139,7 +139,15 @@ async function createSettings(settingsHtml) {
         }
 
         try {
-            const response = await fetch(`${settings.apiUrl}/v1/models`, {
+            let baseUrl = settings.apiUrl.trim();
+            if (baseUrl.endsWith('/')) {
+                baseUrl = baseUrl.slice(0, -1);
+            }
+            if (baseUrl.endsWith('/v1')) {
+                baseUrl = baseUrl.slice(0, -3);
+            }
+
+            const response = await fetch(`${baseUrl}/v1/models`, {
                 headers: {
                     'Authorization': `Bearer ${settings.apiKey}`
                 }
@@ -175,7 +183,15 @@ async function createSettings(settingsHtml) {
         }
 
         try {
-            const response = await fetch(`${settings.apiUrl}/v1/chat/completions`, {
+            let baseUrl = settings.apiUrl.trim();
+            if (baseUrl.endsWith('/')) {
+                baseUrl = baseUrl.slice(0, -1);
+            }
+            if (baseUrl.endsWith('/v1')) {
+                baseUrl = baseUrl.slice(0, -3);
+            }
+            
+            const response = await fetch(`${baseUrl}/v1/chat/completions`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
