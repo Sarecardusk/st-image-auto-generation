@@ -25,16 +25,6 @@ const INSERT_TYPE = {
 // 默认设置
 const defaultSettings = {
     insertType: INSERT_TYPE.DISABLED,
-    promptInjection: {
-        enabled: true,
-        prompt:
-            `<image_generation>
-You must insert a <pic prompt="example prompt"> at end of the reply. Prompts are used for stable diffusion image generation, based on the plot and character to output appropriate prompts to generate captivating images.
-</image_generation>`,
-        regex: '/<pic[^>]*\\sprompt="([^"]*)"[^>]*?>/g',
-        position: 'deep_system', // deep_system, deep_user, deep_assistant
-        depth: 0 // 0表示添加到末尾，>0表示从末尾往前数第几个位置
-    }
 };
 
 // 从设置更新UI
@@ -45,11 +35,6 @@ function updateUI() {
     // 只在表单元素存在时更新它们
     if ($("#image_generation_insert_type").length) {
         $('#image_generation_insert_type').val(extension_settings[extensionName].insertType);
-        $('#prompt_injection_enabled').prop('checked', extension_settings[extensionName].promptInjection.enabled);
-        $('#prompt_injection_text').val(extension_settings[extensionName].promptInjection.prompt);
-        $('#prompt_injection_regex').val(extension_settings[extensionName].promptInjection.regex);
-        $('#prompt_injection_position').val(extension_settings[extensionName].promptInjection.position);
-        $('#prompt_injection_depth').val(extension_settings[extensionName].promptInjection.depth);
     }
 }
 
@@ -61,23 +46,14 @@ async function loadSettings() {
     if (Object.keys(extension_settings[extensionName]).length === 0) {
         Object.assign(extension_settings[extensionName], defaultSettings);
     } else {
-        // 确保promptInjection对象存在
-        if (!extension_settings[extensionName].promptInjection) {
-            extension_settings[extensionName].promptInjection = defaultSettings.promptInjection;
-        } else {
-            // 确保promptInjection的所有子属性都存在
-            const defaultPromptInjection = defaultSettings.promptInjection;
-            for (const key in defaultPromptInjection) {
-                if (extension_settings[extensionName].promptInjection[key] === undefined) {
-                    extension_settings[extensionName].promptInjection[key] = defaultPromptInjection[key];
-                }
-            }
-        }
-
         // 确保insertType属性存在
         if (extension_settings[extensionName].insertType === undefined) {
             extension_settings[extensionName].insertType = defaultSettings.insertType;
         }
+    }
+    // 移除promptInjection
+    if (extension_settings[extensionName].promptInjection) {
+        delete extension_settings[extensionName].promptInjection;
     }
 
     updateUI();
@@ -101,33 +77,6 @@ async function createSettings(settingsHtml) {
         saveSettingsDebounced();
     });
 
-    // 添加提示词注入设置的事件处理
-    $('#prompt_injection_enabled').on('change', function () {
-        extension_settings[extensionName].promptInjection.enabled = $(this).prop('checked');
-        saveSettingsDebounced();
-    });
-
-    $('#prompt_injection_text').on('input', function () {
-        extension_settings[extensionName].promptInjection.prompt = $(this).val();
-        saveSettingsDebounced();
-    });
-
-    $('#prompt_injection_regex').on('input', function () {
-        extension_settings[extensionName].promptInjection.regex = $(this).val();
-        saveSettingsDebounced();
-    });
-
-    $('#prompt_injection_position').on('change', function () {
-        extension_settings[extensionName].promptInjection.position = $(this).val();
-        saveSettingsDebounced();
-    });
-
-    // 深度设置事件处理
-    $('#prompt_injection_depth').on('input', function () {
-        const value = parseInt(String($(this).val()));
-        extension_settings[extensionName].promptInjection.depth = isNaN(value) ? 0 : value;
-        saveSettingsDebounced();
-    });
 
     // 初始化设置值
     updateUI();
@@ -195,62 +144,6 @@ $(function () {
         });
     })();
 });
-// 获取消息角色
-function getMesRole() {
-    // 确保对象路径存在
-    if (!extension_settings[extensionName] ||
-        !extension_settings[extensionName].promptInjection ||
-        !extension_settings[extensionName].promptInjection.position) {
-        return 'system'; // 默认返回system角色
-    }
-
-    switch (extension_settings[extensionName].promptInjection.position) {
-        case 'deep_system':
-            return 'system';
-        case 'deep_user':
-            return 'user';
-        case 'deep_assistant':
-            return 'assistant';
-        default:
-            return 'system';
-    }
-}
-
-// 监听CHAT_COMPLETION_PROMPT_READY事件以注入提示词
-eventSource.on(event_types.CHAT_COMPLETION_PROMPT_READY, async function (eventData) {
-    try {
-        // 确保设置对象和promptInjection对象都存在
-        if (!extension_settings[extensionName] ||
-            !extension_settings[extensionName].promptInjection ||
-            !extension_settings[extensionName].promptInjection.enabled ||
-            extension_settings[extensionName].insertType === INSERT_TYPE.DISABLED) {
-            return;
-        }
-
-        const prompt = extension_settings[extensionName].promptInjection.prompt;
-        const depth = extension_settings[extensionName].promptInjection.depth || 0;
-        const role = getMesRole();
-
-        console.log(`[${extensionName}] 准备注入提示词: 角色=${role}, 深度=${depth}`);
-        console.log(`[${extensionName}] 提示词内容: ${prompt.substring(0, 50)}...`);
-
-        // 根据depth参数决定插入位置
-        if (depth === 0) {
-            // 添加到末尾
-            eventData.chat.push({ role: role, content: prompt });
-            console.log(`[${extensionName}] 提示词已添加到聊天末尾`);
-        } else {
-            // 从末尾向前插入
-            eventData.chat.splice(-depth, 0, { role: role, content: prompt });
-            console.log(`[${extensionName}] 提示词已插入到聊天中，从末尾往前第 ${depth} 个位置`);
-        }
-
-    } catch (error) {
-        console.error(`[${extensionName}] 提示词注入错误:`, error);
-        toastr.error(`提示词注入错误: ${error}`);
-    }
-});
-
 // 监听消息接收事件
 eventSource.on(event_types.MESSAGE_RECEIVED, handleIncomingMessage);
 async function handleIncomingMessage() {
@@ -268,17 +161,9 @@ async function handleIncomingMessage() {
         return;
     }
 
-    // 确保promptInjection对象和regex属性存在
-    if (!extension_settings[extensionName].promptInjection ||
-        !extension_settings[extensionName].promptInjection.regex) {
-        console.error('Prompt injection settings not properly initialized');
-        return;
-    }
-
     // 使用正则表达式search
-    const imgTagRegex = regexFromString(extension_settings[extensionName].promptInjection.regex);
-    // const testRegex = regexFromString(extension_settings[extensionName].promptInjection.regex);
-    let matches = imgTagRegex.global ? [...message.mes.matchAll(imgTagRegex)].map(match => match[1]) : [message.mes.match(imgTagRegex)[1]]; // 只取捕获组的内容
+    const imgTagRegex = /<pic[^>]*\sprompt="([^"]*)"[^>]*?>/g;
+    let matches = [...message.mes.matchAll(imgTagRegex)].map(match => match[1]);
     console.log(imgTagRegex, matches)
     if (matches.length > 0) {
         // 延迟执行图片生成，确保消息首先显示出来
@@ -357,4 +242,3 @@ async function handleIncomingMessage() {
         }, 0); //防阻塞UI渲染
     }
 }
-
