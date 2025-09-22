@@ -176,12 +176,15 @@ async function createSettings(settingsHtml) {
     });
 
     $('#test_api_button').on('click', async function () {
+        console.log("Test button clicked.");
         const settings = extension_settings[extensionName];
         if (!settings.apiUrl || !settings.apiKey || !settings.model) {
             toastr.error("请输入API URL、API密钥和模型。");
+            console.log("Missing API settings.");
             return;
         }
 
+        console.log("API settings found, proceeding with test.");
         try {
             let baseUrl = settings.apiUrl.trim();
             if (baseUrl.endsWith('/')) {
@@ -191,6 +194,7 @@ async function createSettings(settingsHtml) {
                 baseUrl = baseUrl.slice(0, -3);
             }
             
+            console.log(`Fetching from: ${baseUrl}/v1/chat/completions`);
             const response = await fetch(`${baseUrl}/v1/chat/completions`, {
                 method: 'POST',
                 headers: {
@@ -203,15 +207,18 @@ async function createSettings(settingsHtml) {
                 })
             });
 
+            console.log("Fetch request sent, processing response.");
             if (response.ok) {
                 toastr.success("API测试成功！");
+                console.log("API test successful.");
             } else {
                 const error = await response.json();
                 toastr.error(`API测试失败: ${error.error.message}`);
+                console.error("API test failed:", error);
             }
         } catch (error) {
             toastr.error("API测试失败。");
-            console.error(error);
+            console.error("An error occurred during API test:", error);
         }
     });
 
